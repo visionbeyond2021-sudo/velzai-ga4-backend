@@ -1,45 +1,59 @@
 import express from "express";
-import { google } from "googleapis";
-import dotenv from "dotenv";
-
-dotenv.config();
+import cors from "cors";
+import { BetaAnalyticsDataClient } from "@google-analytics/data";
 
 const app = express();
-const port = process.env.PORT || 8080;
+app.use(cors());
+app.use(express.json());
 
-app.get("/ga4/overview", async (req, res) => {
+// decode Base64 service-account key from Render environment
+let serviceAccount = null;
+try {
+  serviceAccount = JSON.parse(
+    Buffer.from(process.env.GA4_SERVICE_ACCOUNT_KEY, "base64").toString("utf-8")
+  );
+  console.log("✅ GA4 credentials loaded");
+} catch (err) {
+  console.error("❌ Unable to parse GA4 key:", err.message);
+}
+
+const analytics = new BetaAnalyticsDataClient({ credentials: serviceAccount });
+
+app.get("/", (req, res) => res.send("✅ Velzai GA4 backend is live!"));
+
+app.get("/refresh", async (_req, res) => {
   try {
-    const auth = new google.auth.GoogleAuth({
-      credentials: JSON.parse(
-        Buffer.from(process.env.GA4_KEY_BASE64, "base64").toString("utf8")
-      ),
-      scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+    const [report] = await analytics.runReport({
+      property: "properties/515522755",
+      dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+      metrics: [
+        { name: "activeUsers" },
+        { name: "averageSessionDuration" },
+        { name: "screenPageViews" }
+      ],
+      dimensions: [{ name: "country" }, { name: "pagePath" }]
     });
 
-    const analyticsDataClient = google.analyticsdata({ version: "v1beta", auth });
-    const propertyId = process.env.GA4_PROPERTY_ID;
+    const result = {
+      totalUsers: report.rows?.[0]?.metricValues?.[0]?.value || 0,
+      avgEngagementTime:
+        (parseFloat(report.rows?.[0]?.metricValues?.[1]?.value) || 0).toFixed(1) + "s",
+      topPages: report.rows.slice(0, 5).map(r => ({
+        path: r.dimensionValues[1].value,
+        views: r.metricValues[2].value
+      })),
+      trafficByCountry: report.rows.slice(0, 5).map(r => ({
+        country: r.dimensionValues[0].value,
+        users: r.metricValues[0].value
+      }))
+    };
 
-    const [response] = await analyticsDataClient.properties.runReport({
-      property: `properties/${propertyId}`,
-      requestBody: {
-        metrics: [
-          { name: "totalUsers" },
-          { name: "newUsers" },
-          { name: "screenPageViews" },
-          { name: "averageSessionDuration" },
-        ],
-        dimensions: [{ name: "country" }],
-        dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
-      },
-    });
-
-    res.json({ success: true, propertyId, data: response.data });
-  } catch (err) {
-    console.error("GA4 API Error:", err);
-    res.status(500).json({ success: false, error: err.message });
+    res.json(result);
+  } catch (e) {
+    console.error("❌ GA4 API error:", e.message);
+    res.status(500).json({ error: "Failed to fetch GA4 data" });
   }
 });
 
-app.listen(port, () =>
-  console.log(`✅ Velzai GA4 backend running on port ${port}`)
-);
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`🚀 GA4 backend running on port ${PORT}`));
