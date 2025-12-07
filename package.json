@@ -1,0 +1,11 @@
+{
+  "name": "velzai-ga4-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.19.2",
+    "googleapis": "^135.0.0",
+    "dotenv": "^16.4.5"
+  }
+}
